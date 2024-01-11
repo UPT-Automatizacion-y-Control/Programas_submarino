@@ -1,0 +1,209 @@
+#include "ros/ros.h"
+#include "geometry_msgs/Twist.h"
+#include "std_msgs/Bool.h"
+#include "std_msgs/Float32.h"
+#include "geometry_msgs/Point32.h"
+#include <geometry_msgs/Accel.h>
+
+#include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <termios.h>
+#include <unistd.h>
+#include <sstream>
+#include <limits>
+
+double per_m = 0.05;
+
+double pose[6];
+
+double ref[6];
+
+bool flag3 = false;
+
+// control en profundidad
+double ex  = 0.0,  ey  = 0.0,  ez  = 0.0; // errores, iniciandolos en 0
+double exi = 0.0,  eyi = 0.0,  ezi = 0.0;
+double exd_actual = 0.0,  eyd_actual = 0.0,  ezd_actual = 0.0;
+double exd_anterior = 0.0,  eyd_anterior = 0.0,  ezd_anterior = 0.0;
+
+double Kpx = 2.5      , Kpy = 4.0    , Kpz = 3.0; //4.5  //Ganancia proporcional para x, y, z
+double Kix = 0.0002   , Kiy = 0.0002 , Kiz = 0.8; //2.0  //Ganancia integral para x, y, z
+double Kdx = 0.6      , Kdy = 3.8    , Kdz = 4.5;
+//control X Bien
+//Kpx = 2.5
+//Kix = 0.0002
+//Kdx = 0.6
+
+//Control Y BIEN
+//Kpy=4.0
+//Kiy=0.0002
+//Kdy=3.8
+
+//Kpz=3.8
+//Kiz=0.06
+//kDZ=4.0
+
+// control en orientacion
+double ewx  = 0.0, ewy  = 0.0, ewz  = 0.0;
+double ewxi = 0.0, ewyi = 0.0, ewzi = 0.0;
+double ewxd_actual   = 0.0,  ewyd_actual   = 0.0,  ewzd_actual   = 0.0;
+double ewxd_anterior = 0.0,  ewyd_anterior = 0.0,  ewzd_anterior = 0.0;
+
+double Kpwx = 0.0005,   Kpwy = 0.0005,   Kpwz = 0.15;
+double Kiwx = 0.0,    Kiwy = 0.0,    Kiwz = 0.0001;
+double Kdwx = 0.0,    Kdwy = 0.0,    Kdwz = 0.1;
+
+//COntrol ROLL
+//Kpwz = 0.0030;
+//Kiwz = 0.0;
+//Kdwz = 0.0;
+
+
+//COntrol PITCH
+//Kpwz = 0.0018;
+//Kiwz = 0.00;
+//Kdwz = 0.0;
+
+
+//COntrol YAW BIEN
+//Kpwz = 0.15;
+//Kiwz = 0.0001;
+//Kdwz = 0.1;
+geometry_msgs::Twist msg_ctrl;
+
+ros::Publisher pub;
+
+
+void obtener_pose_actual(const geometry_msgs::Twist::ConstPtr& msg) {
+    //señal aruco
+    pose[0] = msg->linear.x;
+  	pose[1] = msg->linear.y;
+  	//pose[2] = msg->linear.z;
+  	pose[5] = msg->angular.z;
+  	//ROS_INFO("valor de pose1=%f", pose[1]);
+}
+
+void ref_callback(const geometry_msgs::Twist::ConstPtr& msg) {
+    ref[0] = msg->linear.x;
+    ref[1] = msg->linear.y;
+    ref[2] = msg->linear.z;
+    ref[3] = msg->angular.x;
+    ref[4] = msg->angular.y;
+    ref[5] = msg->angular.z;   
+}
+
+void orientacion_callback(const geometry_msgs::Point32::ConstPtr& msg) {
+    //central inercial
+    pose[3] = msg->x;  //roll
+    pose[4] = msg->y;  //pitch
+    //pose[5] = msg->z;  //yaw
+    
+    //ROS_INFO("valor de pose3=%f", pose[3]);
+}
+
+
+
+void enable_callback(const std_msgs::Bool::ConstPtr& msg) //
+{    
+    if( msg->data)
+    {
+        exi = 0.0;  eyi = 0.0;  ezi = 0.0;
+        ewxi = 0.0; ewyi = 0.0; ewzi = 0.0;
+        ewxd_actual   = 0.0,  ewyd_actual   = 0.0,  ewzd_actual   = 0.0;
+        ewxd_anterior = 0.0,  ewyd_anterior = 0.0,  ewzd_anterior = 0.0;
+    }    
+}
+
+void profundidad_callback(const std_msgs::Float32::ConstPtr& msg){    
+    pose[2] = msg->data;
+    if(pose[2]< 0.01)
+        pose[2]=0;
+}
+
+void timerCallback(const ros::TimerEvent&)
+{
+    //ROS_INFO("valor de pose2=%f", pose[2]);
+    if (pose[0] == 0 && pose[1] == 0){
+        msg_ctrl.linear.x  = 0;
+        msg_ctrl.linear.y  = 0;
+        msg_ctrl.linear.z  = 0;
+        msg_ctrl.angular.z  = 0;
+	}else{
+	    ex = pose[0]-ref[0];
+	    exi += ex*per_m;
+	    exd_actual= (ex-exd_anterior)/(per_m);
+	    exd_anterior = ex;
+	    msg_ctrl.linear.x  = Kpx*ex + Kix*exi + Kdx*exd_actual;   //ref[0];
+	    
+	    ey = ref[1]-pose[1];
+	    eyi += ey*per_m;
+	    eyd_actual= (ey-eyd_anterior)/(per_m);
+	    eyd_anterior = ey;
+	    msg_ctrl.linear.y  = Kpy*ey + Kiy*eyi + Kdy*eyd_actual;   // ref[1];
+	   
+        ewz = ref[5]-pose[5];
+        ewzi += ewz*per_m;
+        ewzd_actual= (ewz-ewzd_anterior)/(per_m);
+	    ewzd_anterior = ewz;
+        msg_ctrl.angular.z = Kpwz*ewz + Kiwz*ewzi + Kdwz*ewzd_actual ;  //Yaw
+	    
+        //ROS_INFO("ex=%f,exi=%f,exd=%f,control_x=%f",ex,exi,exd_actual,msg_ctrl.linear.x);
+        //ROS_INFO("ey=%f,eyi=%f,eyd_actual=%f",ey,eyi,eyd_actual);
+    }
+    //Control pr9ofundidad sensor BAR
+    ez = ref[2] - pose[2];
+    ezi += ez*per_m;
+    ezd_actual= (ez-ezd_anterior)/(per_m);
+	ezd_anterior = ez;
+    msg_ctrl.linear.z  = Kpz*ez + Kiz*ezi + Kdz*ezd_actual;  // profundidad
+    
+    ewx = ref[3]-pose[3];
+	ewxi += ewx*per_m;
+    msg_ctrl.angular.x = Kpwx*ewx;    //roll con central inercial
+    //ROS_INFO("valor de pose3=%f,controlX=%f", pose[3],msg_ctrl.angular.x);
+    ewy = ref[4]-pose[4];
+	ewyi += ewy*per_m;
+	msg_ctrl.angular.y = Kpwy*ewy;  //pitch con central inercial
+	//ROS_INFO("valor de pose4=%f,controlY=%f", pose[4],msg_ctrl.angular.y);
+   
+    //profundidad sensor bar   
+    //ez = ref[2]-pose[2];
+    //ezi += ez*per_m;
+    //msg_ctrl.linear.z  = Kpz*ez + Kiz*ezi;  // profundidad
+  
+    pub.publish(msg_ctrl);
+    ros::spinOnce();
+}
+
+
+int main(int argc, char **argv)
+{
+    //ref[0] = 0.80;  //linear x  probado
+    //ref[1] = 0.0;   //linear y
+    //ref[2] = 0.0;   //linear z probado
+    //ref[3] = 0.0;   //angular x
+    //ref[4] = 0.0;  //angular y
+    //ref[5] = 0.0;  //angular z probado
+    
+    ros::init(argc, argv, "sub_ctrl");
+    ros::NodeHandle n;
+
+    pub = n.advertise<geometry_msgs::Twist>("ctrl_signal",1000);
+
+    ros::Subscriber ref_sub = n.subscribe("referencia",1000, ref_callback);
+    ros::Subscriber orientacion_sub = n.subscribe("sub_orientacion",1000, orientacion_callback);
+    ros::Subscriber profundidad_sub = n.subscribe("sub_profundidad",1000, profundidad_callback);
+    ros::Subscriber enable_sub = n.subscribe("enable_move",1000, enable_callback);
+    ros::Subscriber pose_x = n.subscribe("/sub_lectura_ns_obj/pose_angulo", 1, obtener_pose_actual);//Se define los tópicos en los que se va a suscribir para los valores del marcador
+
+    ros::Timer timer = n.createTimer(ros::Duration(per_m), timerCallback);
+
+    ROS_INFO("SUB_CONTROL");
+
+
+    ros::spin();
+
+    return 0;
+}
+
