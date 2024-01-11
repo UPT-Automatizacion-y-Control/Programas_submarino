@@ -1,0 +1,122 @@
+#include "ros/ros.h"
+#include "geometry_msgs/Twist.h"
+#include "submarino/motores.h"
+#include "std_msgs/Bool.h"
+#include "std_msgs/Float32.h"
+
+#include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <termios.h>
+#include <unistd.h>
+#include <sstream>
+#include <limits>
+
+ros::Publisher pub;
+submarino::motores salida;
+void ref_callback(const geometry_msgs::Twist::ConstPtr& msg);
+float saturacion(float dato, float max, float min);
+
+float map(float);
+float closer_force(float);
+
+const float motor_force[]={-3.52, -3.50, -3.49, -3.45, -3.40, -3.36, -3.29, -3.25, -3.19, -3.14, -3.10, -3.06, -3.00, -2.94, -2.88, -2.85, -2.78, -2.76, -2.69, -2.64, -2.59, -2.53, -2.49, -2.45, -2.41, -2.35, -2.34, -2.26, -2.20, -2.18, -2.12, -2.05, -2.03, -1.99, -1.91, -1.89, -1.82, -1.76, -1.72, -1.68, -1.63, -1.58, -1.56, -1.52, -1.48, -1.44, -1.40, -1.37, -1.32, -1.28, -1.24, -1.19, -1.17, -1.12, -1.09, -1.05, -1.02, -0.98, -0.95, -0.92, -0.88, -0.85, -0.81, 0.77,  -0.74, -0.70, -0.68, -0.65, -0.62, -0.59, -0.55, -0.52, -0.49, -0.46, -0.43, -0.40, -0.37, -0.35, -0.32, -0.29, -0.26, -0.24, -0.21, -0.19, -0.16, -0.15, -0.12, -0.10, -0.08, -0.07, -0.05, -0.03, -0.029, -0.028, -0.027, -0.026, -0.025, -0.024, -0.023, -0.022, 0.00, 0.042, 0.043, 0.044, 0.045, 0.046, 0.047, 0.048, 0.049, 0.05, 0.06, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.23, 0.26, 0.29, 0.33, 0.36, 0.39, 0.43, 0.46, 0.50, 0.53, 0.58, 0.62, 0.64, 0.69, 0.73, 0.77, 0.83, 0.85, 0.89, 0.92, 0.97, 1.00, 1.05, 1.09, 1.14, 1.20, 1.23, 1.28, 1.32, 1.37, 1.41, 1.46, 1.51, 1.55, 1.61, 1.65, 1.71, 1.76, 1.81, 1.85, 1.91, 1.96, 2.00, 2.09, 2.12, 2.16, 2.25, 2.27, 2.34, 2.43, 2.50, 2.56, 2.64, 2.66, 2.76, 2.78, 2.88, 2.93, 2.99, 3.05, 3.13, 3.19, 3.23, 3.32, 3.36, 3.42, 3.49, 3.57, 3.62, 3.69, 3.77, 3.84, 3.92, 3.98, 4.03, 4.11, 4.15, 4.21, 4.30, 4.38, 4.42, 4.51, 4.53, 4.52};
+
+const float motor_pwm[]={1100, 1104, 1108, 1112, 1116, 1120, 1124, 1128, 1132, 1136, 1140, 1144, 1148, 1152, 1156, 1160, 1164, 1168, 1172, 1176, 1180, 1184, 1188, 1192, 1196, 1200, 1204, 1208, 1212, 1216, 1220, 1224, 1228, 1232, 1236, 1240, 1244, 1248, 1252, 1256, 1260, 1264, 1268, 1272, 1276, 1280, 1284, 1288, 1292, 1296, 1300, 1304, 1308, 1312, 1316, 1320, 1324, 1328, 1332, 1336, 1340, 1344, 1348, 1352, 1356, 1360, 1364, 1368, 1372, 1376, 1380, 1384, 1388, 1392, 1396, 1400, 1404, 1408, 1412, 1416, 1420, 1424, 1428, 1432, 1436, 1440, 1444, 1448, 1452, 1456, 1460, 1464, 1468, 1472, 1476, 1480, 1484, 1488, 1492, 1496, 1500, 1504, 1508, 1512, 1516, 1520, 1524, 1528, 1532, 1536, 1540, 1544, 1548, 1552, 1556, 1560, 1564, 1568, 1572, 1576, 1580, 1584, 1588, 1592, 1596, 1600, 1604, 1608, 1612, 1616, 1620, 1624, 1628, 1632, 1636, 1640, 1644, 1648, 1652, 1656, 1660, 1664, 1668, 1672, 1676, 1680, 1684, 1688, 1692, 1696, 1700, 1704, 1708, 1712, 1716, 1720, 1724, 1728, 1732, 1736, 1740, 1744, 1748, 1752, 1756, 1760, 1764, 1768, 1772, 1776, 1780, 1784, 1788, 1792, 1796, 1800, 1804, 1808, 1812,1816, 1820, 1824, 1828, 1832, 1836, 1840, 1844, 1848, 1852, 1856, 1860, 1864, 1868, 1872, 1876, 1880, 1884, 1888, 1892, 1896, 1900};
+
+const float in_min = 1100, in_max = 1900, out_min = -128, out_max = 127;
+
+
+int main(int argc, char **argv)
+{
+    ros::init(argc, argv, "CINEMATICA");
+    ros::NodeHandle n;
+    
+    ros::Subscriber teleop_sub = n.subscribe("ctrl_signal",1000, ref_callback);
+    
+    pub = n.advertise<submarino::motores>("motor_vel",1000);
+
+    ROS_INFO("SUB_CINEMATICA");
+
+    ros::spin();
+
+    return 0;
+}
+
+
+void ref_callback(const geometry_msgs::Twist::ConstPtr& msg)
+{
+    
+    float Fx = msg->linear.x;
+    float Fy = msg->linear.y;
+    float Fz = msg->linear.z;
+    float Tx = msg->angular.x;
+    float Ty = msg->angular.y;
+    float Tz = msg->angular.z;
+		
+    float M1 = -0.3536*Fx + 0.3536*Fy + 0.0000*Fz + 0.0000*Tx + 0.0000*Ty + 1.3242*Tz;
+    float M2 = -0.3536*Fx - 0.3536*Fy + 0.0000*Fz + 0.0000*Tx + 0.0000*Ty - 1.3242*Tz;
+    float M3 = -0.3536*Fx - 0.3536*Fy + 0.0000*Fz + 0.0000*Tx + 0.0000*Ty + 1.3242*Tz;
+    float M4 = -0.3536*Fx + 0.3536*Fy + 0.0000*Fz + 0.0000*Tx + 0.0000*Ty - 1.3242*Tz;
+    float M5 = +0.0000*Fx + 0.0000*Fy - 0.2500*Fz - 1.1468*Tx + 2.0833*Ty + 0.0000*Tz;
+    float M6 = +0.0000*Fx + 0.0000*Fy + 0.2500*Fz - 1.1468*Tx - 2.0833*Ty + 0.0000*Tz;
+    float M7 = +0.0000*Fx + 0.0000*Fy + 0.2500*Fz + 1.1468*Tx + 2.0833*Ty + 0.0000*Tz;
+    float M8 = +0.0000*Fx + 0.0000*Fy - 0.2500*Fz + 1.1468*Tx - 2.0833*Ty + 0.0000*Tz;
+
+    M1 = closer_force(M1);
+    M2 = closer_force(M2);
+    M3 = closer_force(M3);
+    M4 = closer_force(M4);
+    M5 = closer_force(M5);
+    M6 = closer_force(M6);
+    M7 = closer_force(M7);
+    M8 = closer_force(M8);
+ 
+    salida.M1 = saturacion(map(M1), 60, -60);
+    salida.M2 = saturacion(map(M2), 60, -60);
+    salida.M3 = saturacion(map(M3), 60, -60);
+    salida.M4 = saturacion(map(M4), 60, -60);
+    salida.M5 = saturacion(map(M5), 60, -60);
+    salida.M6 = saturacion(map(M6), 60, -60);
+    salida.M7 = saturacion(map(M7), 60, -60);
+    salida.M8 = saturacion(map(M8), 60, -60);
+
+    pub.publish(salida);
+    ros::spinOnce();
+
+}
+
+
+float closer_force(float v)
+{
+    float e = 99999;
+	int k = 0;
+	
+	for (int i=0;i<201;i++)
+	{
+		if (abs(v-motor_force[i]) < e)
+		{
+			e = abs(v-motor_force[i]);
+			k = i;
+		}
+	}
+	return motor_pwm[k];
+}
+
+
+float map(float x)
+{
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+float saturacion(float dato, float max, float min)
+{
+    float salida = dato;
+    
+    if (salida > max)
+        salida = max;
+    if (salida < min)
+        salida = min;
+
+    return salida;
+}
