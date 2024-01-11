@@ -1,0 +1,100 @@
+/*
+Primero hay que hacer el siguiente tutorial:
+http://wiki.ros.org/joy/Tutorials/ConfiguringALinuxJoystick
+
+Hay que registrar el joystick a usar (1 para el segundo joystick):
+rosparam set joy_node/dev "/dev/input/js1"
+
+Este nodo debe estar corriendo para comunicarse con el joystick:
+rosrun joy joy_node
+*/
+
+#include "ros/ros.h"
+#include "geometry_msgs/Twist.h"
+#include "sensor_msgs/Joy.h"
+
+const float LIN_VEL_MAX = 5; //velocidad maxima linear, en el eje "X" "Y", (par en los propulsores)
+const float PROF_MAX = 1.5; //profundidad maxima (metros)
+
+const float INC_LIN_VEL = 0.5; // incremento de par en los propulsores.
+const float INC_PROF = 0.1; //incrementos de 10cm en profundidad.
+const float INC_ANG = 5.0; //incremento para rotar el submario.
+const float INC = 0.2; //incrementos de 10cm en la referencia de X .
+const float INCY = 0.05; //incrementos de 10cm en la referencia de Y.
+
+ros::Publisher ref_pub;
+
+geometry_msgs::Twist ref_msg;
+
+void timerCallback(const ros::TimerEvent&)
+{
+    ref_pub.publish(ref_msg);
+	ros::spinOnce();
+}
+
+
+
+void jsCallback(const sensor_msgs::Joy::ConstPtr& js_msg)
+{
+    if (js_msg->buttons[0] == 1)
+	    ref_msg.linear.x += INC;
+    if (js_msg->buttons[2] == 1)
+	    ref_msg.linear.x -= INC;	
+
+    if(ref_msg.linear.x > LIN_VEL_MAX)
+        ref_msg.linear.x = LIN_VEL_MAX;
+    if(ref_msg.linear.x < -LIN_VEL_MAX)
+        ref_msg.linear.x = -LIN_VEL_MAX;
+
+    if (js_msg->buttons[1] == 1)
+	    ref_msg.linear.y += INCY;
+    if (js_msg->buttons[3] == 1)
+	    ref_msg.linear.y -= INCY;
+
+    if(ref_msg.linear.y > LIN_VEL_MAX)
+        ref_msg.linear.y = LIN_VEL_MAX;
+    if(ref_msg.linear.y < -LIN_VEL_MAX)
+        ref_msg.linear.y = -LIN_VEL_MAX;
+
+    if (js_msg->buttons[6] == 1)
+	    ref_msg.linear.z += INC_PROF;
+    if (js_msg->buttons[4] == 1)
+	    ref_msg.linear.z -= INC_PROF;
+
+    if(ref_msg.linear.z > PROF_MAX)
+        ref_msg.linear.z = PROF_MAX;
+    if(ref_msg.linear.z < -PROF_MAX)
+        ref_msg.linear.z = -PROF_MAX;
+
+    if (js_msg->buttons[5] == 1)
+	    ref_msg.angular.z += INC_ANG;
+    if (js_msg->buttons[7] == 1)
+	    ref_msg.angular.z -= INC_ANG;
+
+    if(ref_msg.angular.z > 150.0)
+        ref_msg.angular.z = 150.0;
+    if(ref_msg.angular.z < -150.0)
+        ref_msg.angular.z = -150.0;
+
+    if (js_msg->buttons[9] == 1){
+          ref_msg.linear.x = 0.80;
+          ref_msg.linear.y = 0;
+          ref_msg.linear.z = 0;
+          ref_msg.angular.x = 0;
+          ref_msg.angular.y = 0;
+          ref_msg.angular.z = 0;   
+    }
+}
+
+int main(int argc, char **argv)
+{
+    ref_msg.linear.x = 0.80;
+	ros::init(argc, argv, "sub_joystick");
+  	ros::NodeHandle nh;
+  	ref_pub = nh.advertise<geometry_msgs::Twist>("referencia_sub", 1000);
+  	ros::Subscriber js_sub = nh.subscribe("joy", 1000, jsCallback);
+    ros::Timer timer = nh.createTimer(ros::Duration(0.05), timerCallback);
+    ROS_INFO("SUB_JOYSTICK");
+  	ros::spin();
+}
+
